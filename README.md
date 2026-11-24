@@ -43,6 +43,26 @@ Implementation of the technical requirements in `pdf-quiz-platform-trd (2).md`.
 - API docs: http://localhost:8000/docs
 - Frontend: http://localhost:3000
 
+## Database migrations
+
+From the repository root, start PostgreSQL and apply the schema:
+
+```powershell
+docker compose up -d postgres
+docker compose run --rm --build api uv run alembic upgrade head
+```
+
+For the database integration test, point both URLs at a dedicated PostgreSQL
+test database that already exists. Run these commands from `backend/` with
+the project's development dependencies installed:
+
+```powershell
+$env:TEST_DATABASE_URL = 'postgresql+asyncpg://quiz:quiz@localhost:5432/quiz_test'
+$env:DATABASE_URL = $env:TEST_DATABASE_URL
+python -m alembic upgrade head
+python -m pytest
+```
+
 ## Next milestone
 
-The foundation milestone starts with database models, Alembic migrations, registration/login, and JWT authentication.
+The next foundation work is registration, login, and JWT authentication.

@@ -148,6 +148,7 @@ class Job(Record, Base):
     attempts_count: Mapped[int] = mapped_column(server_default="0")
     started_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     error: Mapped[str | None]
     __table_args__ = (
         sa.CheckConstraint(

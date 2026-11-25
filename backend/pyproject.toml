@@ -13,6 +13,8 @@ dependencies = [
     "argon2-cffi>=23.1,<26",
     "PyJWT>=2.9,<3",
     "email-validator>=2.2,<3",
+    "pdfplumber>=0.11,<1",
+    "python-multipart>=0.0.20,<1",
 ]
 
 [dependency-groups]

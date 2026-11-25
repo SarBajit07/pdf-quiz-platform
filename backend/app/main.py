@@ -4,6 +4,8 @@ from fastapi.responses import JSONResponse
 
 from app.auth import router as auth_router
 from app.core.config import settings
+from app.documents import router as documents_router
+from app.upload_limit import UploadLimitMiddleware
 
 app = FastAPI(
     title="PDF Quiz Platform API",
@@ -12,6 +14,7 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+app.add_middleware(UploadLimitMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -21,6 +24,7 @@ app.add_middleware(
 )
 
 app.include_router(auth_router)
+app.include_router(documents_router)
 
 
 @app.exception_handler(HTTPException)

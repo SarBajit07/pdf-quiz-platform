@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +30,9 @@ class Settings(BaseSettings):
     storage_path: str = "./storage"
     max_upload_mb: int = 20
     max_pages: int = 100
+    extraction_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    extraction_max_retries: int = Field(default=3, ge=0, le=10)
+    extraction_retry_seconds: float = Field(default=5, gt=0)
 
 
 settings = Settings()

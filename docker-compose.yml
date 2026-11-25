@@ -32,11 +32,31 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      STORAGE_PATH: /app/storage
+    volumes:
+      - upload_data:/app/storage
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
 
+  worker:
+    build:
+      context: ./backend
+    command: ["uv", "run", "python", "-m", "app.worker"]
+    env_file:
+      - .env
+    environment:
+      STORAGE_PATH: /app/storage
+    volumes:
+      - upload_data:/app/storage
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres_data:
+  upload_data:

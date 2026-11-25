@@ -20,8 +20,10 @@ class Settings(BaseSettings):
     llm_model: str = "qwen3.5:4b"
     llm_fallbacks: str = "gemini,groq"
 
-    jwt_secret: str = "change-me-in-production"
+    jwt_secret: str = "change-me-in-production-use-a-unique-32-byte-secret"
     jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 15
+    refresh_token_days: int = 7
 
     storage_backend: str = "local"
     storage_path: str = "./storage"

@@ -26,6 +26,13 @@ class User(Record, Base):
     __table_args__ = (sa.CheckConstraint("role IN ('user','admin')", name="ck_user_role"),)
 
 
+class RefreshToken(Record, Base):
+    __tablename__ = "refresh_tokens"
+    user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    expires_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+
+
 class Document(Record, Base):
     __tablename__ = "documents"
     user_id: Mapped[UUID] = mapped_column(sa.ForeignKey("users.id", ondelete="CASCADE"))

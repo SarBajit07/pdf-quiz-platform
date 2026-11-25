@@ -65,4 +65,10 @@ python -m pytest
 
 ## Next milestone
 
-The next foundation work is registration, login, and JWT authentication.
+Authentication is available at `/api/v1/auth/register`, `/api/v1/auth/login`,
+`/api/v1/auth/refresh`, and `/api/v1/auth/me`. Login returns a 15-minute access
+token and a seven-day refresh token. Refresh tokens rotate on use. Set
+`JWT_SECRET` to a unique long random value before running outside local development,
+and apply migration `0002` before using the auth endpoints.
+
+The next milestone is PDF upload, validation, and per-page text extraction.

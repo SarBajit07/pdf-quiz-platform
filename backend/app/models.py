@@ -43,6 +43,8 @@ class Document(Record, Base):
     doc_type: Mapped[str | None]
     doc_type_source: Mapped[str]
     doc_type_confidence: Mapped[float | None]
+    num_questions: Mapped[int] = mapped_column(server_default="10")
+    difficulty: Mapped[str] = mapped_column(server_default="medium")
     status: Mapped[str] = mapped_column(server_default="queued")
     error_message: Mapped[str | None]
     __table_args__ = (
@@ -50,8 +52,11 @@ class Document(Record, Base):
         sa.Index("ix_documents_user_created", "user_id", sa.desc("created_at")),
         sa.CheckConstraint("doc_type IN ('notes','exam')", name="ck_document_type"),
         sa.CheckConstraint("doc_type_source IN ('user','auto')", name="ck_document_type_source"),
+        sa.CheckConstraint("num_questions BETWEEN 5 AND 30", name="ck_document_num_questions"),
+        sa.CheckConstraint("difficulty IN ('easy','medium','hard')", name="ck_document_difficulty"),
         sa.CheckConstraint(
-            "status IN ('queued','processing','ready','failed')", name="ck_document_status"
+            "status IN ('queued','processing','needs_confirmation','ready','failed')",
+            name="ck_document_status",
         ),
     )
 
@@ -152,6 +157,7 @@ class Job(Record, Base):
     error: Mapped[str | None]
     __table_args__ = (
         sa.CheckConstraint(
-            "status IN ('queued','processing','ready','failed')", name="ck_job_status"
+            "status IN ('queued','processing','needs_confirmation','ready','failed')",
+            name="ck_job_status",
         ),
     )

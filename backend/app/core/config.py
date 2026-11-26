@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     llm_api_key: str = "ollama"
     llm_model: str = "qwen3.5:4b"
     llm_fallbacks: str = "gemini,groq"
+    llm_max_concurrency: int = Field(default=1, ge=1, le=8)
+    llm_chunk_tokens: int = Field(default=1500, ge=300, le=8000)
+    llm_timeout_seconds: float = Field(default=120, gt=0, le=600)
+    llm_requests_per_minute: int = Field(default=30, ge=1, le=600)
+    gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    groq_api_key: str | None = None
+    groq_model: str = "llama-3.3-70b-versatile"
+    openrouter_api_key: str | None = None
+    openrouter_model: str = "openai/gpt-oss-20b"
 
     jwt_secret: str = "change-me-in-production-use-a-unique-32-byte-secret"
     jwt_algorithm: str = "HS256"

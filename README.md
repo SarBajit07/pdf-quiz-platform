@@ -63,7 +63,7 @@ python -m alembic upgrade head
 python -m pytest
 ```
 
-## Next milestone
+## Current milestone
 
 Authentication is available at `/api/v1/auth/register`, `/api/v1/auth/login`,
 `/api/v1/auth/refresh`, and `/api/v1/auth/me`. Login returns a 15-minute access
@@ -76,9 +76,17 @@ PDF uploads are available at `POST /api/v1/documents` (Bearer token, multipart
 and the 20 MB file limit and creates a durable PostgreSQL extraction job.
 The whole multipart request is limited to 20 MB plus 64 KB of overhead before parsing.
 Poll `GET /api/v1/documents/{id}` for `queued`, `processing`, `ready`, or `failed`.
-At this milestone, `ready` means text extraction is complete; quiz generation
-and automatic type classification are still pending. Page count is zero until
+The upload also accepts `num_questions` (5-30, default 10) and `difficulty`
+(`easy`, `medium`, or `hard`, default `medium`). Page count is zero until
 extraction completes. Invalid PDFs and PDFs over 100 pages fail asynchronously.
+The worker stores page text and creates a quiz before setting the document to
+`ready`. The document API reports the actual quiz size as
+`generated_question_count`. For notes, this can be below the requested
+`num_questions` when the model returns too few valid questions.
+`needs_confirmation` means automatic type classification was below
+70% confidence; call `PATCH /api/v1/documents/{id}/type` with JSON such as
+`{"doc_type":"notes"}` or `{"doc_type":"exam"}` to resume. This endpoint
+also corrects a type after a completed or failed job and requeues generation.
 
 Start the API and extraction worker with:
 
@@ -100,6 +108,17 @@ after 5, 10, and 20 seconds; invalid PDFs fail immediately. Crashed attempts
 also count toward the retry limit. Apply migration `0003` for retry scheduling.
 Configure `EXTRACTION_TIMEOUT_SECONDS` (maximum 600), `EXTRACTION_MAX_RETRIES`,
 and `EXTRACTION_RETRY_SECONDS` to change these defaults.
-Run only the extraction worker for this milestone.
+The worker classifies `auto` uploads, generates notes questions from page-marked
+chunks, or extracts exam questions and answer-key entries. Questions are
+validated and saved with their source page. Exam answers without a verified key
+entry are marked `ai_solved`; disagreement with a key is flagged. Model-generated
+answers should be reviewed before relying on them. Scanned PDFs with mostly
+empty text fail with a message requesting a text-based PDF; OCR is a later phase.
 
-The next milestone is document classification and quiz generation.
+Set `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` for the primary
+OpenAI-compatible provider. The defaults use local Ollama. Optional fallback
+providers use `LLM_FALLBACKS` plus `GEMINI_API_KEY`, `GROQ_API_KEY`, or
+`OPENROUTER_API_KEY`. Only fallbacks with keys are used. Set rate and concurrency
+limits to match your provider. Apply migration `0004` before starting the new API
+and worker. A `ready` document now has a saved quiz and questions; the quiz
+retrieval and attempt APIs and frontend are planned for Phase 3.

@@ -6,15 +6,20 @@ from uuid import UUID, uuid4
 import pdfplumber
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import select
+from pydantic import BaseModel
+from sqlalchemy import Select, select
 
 from app.auth import Session, get_current_user
 from app.core.config import settings
-from app.models import Document, Job, User
+from app.models import Document, Job, Quiz, User
 from app.schemas.documents import DocumentResponse
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+class DocumentTypeUpdate(BaseModel):
+    doc_type: Literal["notes", "exam"]
 
 
 def extract_pages(data: bytes) -> list[str]:
@@ -35,6 +40,8 @@ async def upload_document(
     user: CurrentUser,
     file: Annotated[UploadFile, File()],
     doc_type: Annotated[Literal["notes", "exam", "auto"], Form()] = "auto",
+    num_questions: Annotated[int, Form(ge=5, le=30)] = 10,
+    difficulty: Annotated[Literal["easy", "medium", "hard"], Form()] = "medium",
 ) -> Document:
     if file.content_type != "application/pdf":
         raise HTTPException(400, "File must have application/pdf content type")
@@ -52,6 +59,7 @@ async def upload_document(
         storage_path=str(path.resolve()), size_bytes=len(data), page_count=0,
         doc_type=None if doc_type == "auto" else doc_type,
         doc_type_source="auto" if doc_type == "auto" else "user", status="queued",
+        num_questions=num_questions, difficulty=difficulty,
     )
     try:
         session.add(document)
@@ -64,19 +72,71 @@ async def upload_document(
     return document
 
 
-@router.get("", response_model=list[DocumentResponse])
-async def list_documents(session: Session, user: CurrentUser) -> list[Document]:
-    result = await session.scalars(
-        select(Document).where(Document.user_id == user.id).order_by(Document.created_at.desc())
+def _documents_with_question_count(user_id: UUID) -> Select[tuple[Document, int | None]]:
+    question_count = (
+        select(Quiz.num_questions)
+        .where(Quiz.document_id == Document.id, Document.status == "ready")
+        .order_by(Quiz.created_at.desc(), Quiz.id.desc())
+        .limit(1)
+        .scalar_subquery()
     )
-    return list(result)
+    return select(Document, question_count).where(Document.user_id == user_id)
+
+
+@router.get("", response_model=list[DocumentResponse])
+async def list_documents(session: Session, user: CurrentUser) -> list[DocumentResponse]:
+    result = await session.execute(
+        _documents_with_question_count(user.id).order_by(Document.created_at.desc())
+    )
+    return [
+        DocumentResponse.model_validate(document).model_copy(
+            update={"generated_question_count": question_count},
+        )
+        for document, question_count in result
+    ]
 
 
 @router.get("/{document_id}", response_model=DocumentResponse)
-async def get_document(document_id: UUID, session: Session, user: CurrentUser) -> Document:
+async def get_document(document_id: UUID, session: Session, user: CurrentUser) -> DocumentResponse:
+    result = await session.execute(
+        _documents_with_question_count(user.id).where(Document.id == document_id)
+    )
+    row = result.one_or_none()
+    if row is None:
+        raise HTTPException(404, "Document not found")
+    document, question_count = row
+    return DocumentResponse.model_validate(document).model_copy(
+        update={"generated_question_count": question_count},
+    )
+
+
+@router.patch("/{document_id}/type", response_model=DocumentResponse)
+async def update_document_type(
+    document_id: UUID, update: DocumentTypeUpdate, session: Session, user: CurrentUser,
+) -> Document:
+    # The worker acquires the job lock before writing to the document.
+    job = await session.scalar(
+        select(Job).join(Document, Document.id == Job.document_id)
+        .where(Job.document_id == document_id, Document.user_id == user.id)
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(1).with_for_update(of=Job)
+    )
     document = await session.scalar(
         select(Document).where(Document.id == document_id, Document.user_id == user.id)
+        .with_for_update()
     )
     if document is None:
         raise HTTPException(404, "Document not found")
+    if document.status == "processing":
+        raise HTTPException(409, "Wait for processing to finish before changing type")
+    if job is None:
+        raise HTTPException(409, "Document has no processing job")
+    document.doc_type = update.doc_type
+    document.doc_type_source = "user"
+    document.doc_type_confidence = None
+    document.status = job.status = "queued"
+    document.error_message = job.error = None
+    job.attempts_count = 0
+    job.next_attempt_at = job.started_at = job.finished_at = None
+    await session.commit()
     return document

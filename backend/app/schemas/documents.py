@@ -13,5 +13,10 @@ class DocumentResponse(BaseModel):
     page_count: int
     doc_type: str | None
     status: str
+    doc_type_source: str
+    doc_type_confidence: float | None
+    num_questions: int
+    generated_question_count: int | None = None
+    difficulty: str
     error_message: str | None
     created_at: datetime

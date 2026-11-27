@@ -6,9 +6,10 @@ import logging
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import DataError, IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,7 +17,7 @@ from app.core.config import settings
 from app.database import SessionFactory
 from app.generation import GenerationError, classify_document, generate_exam, generate_notes
 from app.llm import LLMClient, LLMError, OpenAICompatibleClient
-from app.models import Document, DocumentPage, Job, Question, Quiz
+from app.models import Document, DocumentPage, Job, PendingFileDeletion, Question, Quiz
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,6 @@ async def process_next_job(
             job.error = document.error_message = None
             job.status = document.status = "needs_confirmation" if quiz is None else "ready"
             if quiz is not None:
-                await session.execute(delete(Quiz).where(Quiz.document_id == document_id))
                 saved = Quiz(document_id=document_id, user_id=document.user_id,
                              title=document.filename.rsplit(".", 1)[0],
                              num_questions=len(quiz.questions), difficulty=difficulty,
@@ -190,10 +190,31 @@ async def process_next_job(
     return True
 
 
+async def retry_file_deletion(sessions: async_sessionmaker[AsyncSession]) -> None:
+    async with sessions.begin() as session:
+        pending = await session.scalar(
+            select(PendingFileDeletion).where(PendingFileDeletion.retry_at <= datetime.now(UTC))
+            .order_by(PendingFileDeletion.retry_at).limit(1).with_for_update(skip_locked=True)
+        )
+        if pending is None:
+            return
+        path = Path(pending.storage_path)
+        try:
+            if path.parent.resolve() != Path(settings.storage_path).resolve():
+                raise OSError("PDF is outside the configured storage directory")
+            await asyncio.to_thread(path.unlink, missing_ok=True)
+        except OSError:
+            logger.exception("PDF cleanup failed for document %s", pending.document_id)
+            pending.retry_at = datetime.now(UTC) + timedelta(minutes=1)
+        else:
+            await session.delete(pending)
+
+
 async def main() -> None:
     client = OpenAICompatibleClient()
     while True:
         try:
+            await retry_file_deletion(SessionFactory)
             if await process_next_job(client=client):
                 continue
         except Exception:

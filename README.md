@@ -119,6 +119,21 @@ Set `LLM_PROVIDER`, `LLM_BASE_URL`, `LLM_API_KEY`, and `LLM_MODEL` for the prima
 OpenAI-compatible provider. The defaults use local Ollama. Optional fallback
 providers use `LLM_FALLBACKS` plus `GEMINI_API_KEY`, `GROQ_API_KEY`, or
 `OPENROUTER_API_KEY`. Only fallbacks with keys are used. Set rate and concurrency
-limits to match your provider. Apply migration `0004` before starting the new API
-and worker. A `ready` document now has a saved quiz and questions; the quiz
-retrieval and attempt APIs and frontend are planned for Phase 3.
+limits to match your provider. Apply migrations through `0005` before starting the new API
+and worker. A `ready` document has a saved quiz and questions.
+
+## Quiz experience
+
+The frontend at `http://localhost:3000` supports account creation, sign-in,
+PDF upload, status tracking, type confirmation, quiz taking, results, and
+attempt review. It uses `http://localhost:8000/api/v1` by default. Set
+`NEXT_PUBLIC_API_URL` before building if the API has another public URL.
+Tokens are kept in browser session storage.
+
+The API serves questions without answers at `GET /api/v1/documents/{id}/quiz`.
+`POST /api/v1/quizzes/{id}/attempts` scores MCQs. Attempts can be listed and
+reviewed at `GET /api/v1/quizzes/{id}/attempts` and
+`GET /api/v1/quizzes/{id}/attempts/{attempt_id}`. Non-MCQ exam questions are
+shown as flashcards and excluded from the score. Regeneration is available at
+`POST /api/v1/quizzes/{id}/regenerate`; previous quizzes and attempts remain
+stored. `DELETE /api/v1/documents/{id}` removes the PDF and all derived data.

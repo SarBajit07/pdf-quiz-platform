@@ -144,6 +144,15 @@ class Attempt(Record, Base):
     )
 
 
+class PendingFileDeletion(Base):
+    __tablename__ = "pending_file_deletions"
+    document_id: Mapped[UUID] = mapped_column(primary_key=True)
+    storage_path: Mapped[str]
+    retry_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=sa.func.now(),
+    )
+
+
 class Job(Record, Base):
     __tablename__ = "jobs"
     document_id: Mapped[UUID] = mapped_column(

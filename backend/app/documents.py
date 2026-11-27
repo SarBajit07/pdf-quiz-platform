@@ -7,11 +7,11 @@ import pdfplumber
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from sqlalchemy import Select, select
+from sqlalchemy import Select, delete, select
 
 from app.auth import Session, get_current_user
 from app.core.config import settings
-from app.models import Document, Job, Quiz, User
+from app.models import Document, Job, PendingFileDeletion, Quiz, User
 from app.schemas.documents import DocumentResponse
 
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
@@ -75,7 +75,7 @@ async def upload_document(
 def _documents_with_question_count(user_id: UUID) -> Select[tuple[Document, int | None]]:
     question_count = (
         select(Quiz.num_questions)
-        .where(Quiz.document_id == Document.id, Document.status == "ready")
+        .where(Quiz.document_id == Document.id)
         .order_by(Quiz.created_at.desc(), Quiz.id.desc())
         .limit(1)
         .scalar_subquery()
@@ -140,3 +140,35 @@ async def update_document_type(
     job.next_attempt_at = job.started_at = job.finished_at = None
     await session.commit()
     return document
+
+
+@router.delete("/{document_id}", status_code=204)
+async def delete_document(document_id: UUID, session: Session, user: CurrentUser) -> None:
+    await session.execute(
+        select(Job.id).join(Document, Document.id == Job.document_id)
+        .where(Document.id == document_id, Document.user_id == user.id)
+        .order_by(Job.created_at.desc(), Job.id.desc()).with_for_update(of=Job)
+    )
+    document = await session.scalar(
+        select(Document).where(Document.id == document_id, Document.user_id == user.id)
+        .with_for_update()
+    )
+    if document is None:
+        raise HTTPException(404, "Document not found")
+    if document.status == "processing":
+        raise HTTPException(409, "Wait for processing to finish before deleting")
+    path = Path(document.storage_path)
+    if path.parent.resolve() != Path(settings.storage_path).resolve():
+        raise HTTPException(409, "PDF is outside the configured storage directory")
+    session.add(PendingFileDeletion(document_id=document.id, storage_path=str(path)))
+    await session.execute(delete(Document).where(Document.id == document_id))
+    await session.commit()
+    # The worker retries if the process exits or storage is temporarily unavailable.
+    try:
+        await run_in_threadpool(path.unlink, missing_ok=True)
+    except OSError:
+        return
+    await session.execute(delete(PendingFileDeletion).where(
+        PendingFileDeletion.document_id == document_id
+    ))
+    await session.commit()

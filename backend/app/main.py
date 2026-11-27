@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 from app.auth import router as auth_router
 from app.core.config import settings
 from app.documents import router as documents_router
+from app.quizzes import router as quizzes_router
 from app.upload_limit import UploadLimitMiddleware
 
 app = FastAPI(
@@ -25,6 +26,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(documents_router)
+app.include_router(quizzes_router)
 
 
 @app.exception_handler(HTTPException)

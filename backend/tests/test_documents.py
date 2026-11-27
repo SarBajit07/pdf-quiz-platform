@@ -3,6 +3,7 @@ import io
 import os
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -15,10 +16,10 @@ from app import worker
 from app.core.config import settings
 from app.core.security import make_token
 from app.database import get_session
-from app.documents import extract_pages
+from app.documents import delete_document, extract_pages
 from app.llm import LLMClient
 from app.main import app
-from app.models import Document, DocumentPage, Job, Question, Quiz, User
+from app.models import Document, DocumentPage, Job, PendingFileDeletion, Question, Quiz, User
 from app.upload_limit import UploadLimitMiddleware
 from app.worker import process_next_job
 
@@ -32,6 +33,10 @@ async def test_worker_reuses_llm_client_across_jobs(monkeypatch: pytest.MonkeyPa
         clients.append(client)
         return True
 
+    async def no_pending_deletions(_sessions) -> None:
+        pass
+
+    monkeypatch.setattr(worker, "retry_file_deletion", no_pending_deletions)
     monkeypatch.setattr(worker, "process_next_job", process_job)
     with pytest.raises(asyncio.CancelledError):
         await worker.main()
@@ -128,6 +133,44 @@ async def document_sessions():
             await transaction.rollback()
     finally:
         await engine.dispose()
+
+
+async def test_worker_finishes_pending_pdf_deletion(document_sessions, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "storage_path", str(tmp_path))
+    path = tmp_path / "queued.pdf"
+    path.write_bytes(b"%PDF-test")
+    async with document_sessions.begin() as session:
+        owner = User(email=f"{uuid4()}@example.com", password_hash="test")
+        session.add(owner)
+        await session.flush()
+        document = Document(
+            user_id=owner.id, filename=path.name, storage_path=str(path), size_bytes=9,
+            page_count=0, doc_type_source="auto",
+        )
+        session.add(document)
+        await session.flush()
+        document_id = document.id
+        session.add(Job(document_id=document_id))
+
+    def fail_unlink(target: Path, *, missing_ok: bool) -> None:
+        assert target == path
+        raise PermissionError("PDF temporarily locked")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, "unlink", fail_unlink)
+        async with document_sessions() as session:
+            await delete_document(document_id, session, owner)
+
+    assert path.exists()
+    async with document_sessions() as session:
+        assert await session.get(Document, document_id) is None
+        pending = await session.get(PendingFileDeletion, document_id)
+        assert pending.storage_path == str(path)
+
+    await worker.retry_file_deletion(document_sessions)
+    assert not path.exists()
+    async with document_sessions() as session:
+        assert await session.get(PendingFileDeletion, document_id) is None
 
 
 async def test_upload_worker_failure_and_ownership(document_sessions, tmp_path, monkeypatch):
